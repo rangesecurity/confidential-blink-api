@@ -15,7 +15,7 @@ use {
     spl_token_2022::{
         extension::{
             confidential_transfer::{
-                account_info::WithdrawAccountInfo,
+                account_info::{combine_balances, ApplyPendingBalanceAccountInfo, WithdrawAccountInfo},
                 instruction::{
                     BatchedRangeProofContext, CiphertextCommitmentEqualityProofContext,
                     ProofContextState,
@@ -24,9 +24,9 @@ use {
             },
             BaseStateWithExtensions, StateWithExtensions,
         },
-        solana_zk_sdk::zk_elgamal_proof_program::instruction::{
+        solana_zk_sdk::{encryption::{auth_encryption::AeCiphertext, elgamal::ElGamalCiphertext}, zk_elgamal_proof_program::instruction::{
             close_context_state, ContextStateInfo,
-        },
+        }},
     },
     spl_token_confidential_transfer_proof_extraction::instruction::ProofLocation,
     spl_token_confidential_transfer_proof_generation::withdraw::WithdrawProofData,
@@ -205,6 +205,67 @@ pub async fn withdraw(
                 .into_response()
         }
     };
+    let apply_info = ApplyPendingBalanceAccountInfo::new(confidential_transfer_account);
+
+    let Ok(pending_balance_lo) =
+        TryInto::<ElGamalCiphertext>::try_into(confidential_transfer_account.pending_balance_lo)
+    else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError {
+                msg: "failed to parse pending_balance_hi".to_string(),
+            }),
+        )
+            .into_response();
+    };
+    let Ok(pending_balance_hi) =
+        TryInto::<ElGamalCiphertext>::try_into(confidential_transfer_account.pending_balance_hi)
+    else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError {
+                msg: "failed to parse pending_balance_lo".to_string(),
+            }),
+        )
+            .into_response();
+    };
+
+    let Some(pending_balance_lo) = elgamal_key.secret().decrypt_u32(&pending_balance_lo) else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError {
+                msg: "failed to decrypt pending_balance_lo".to_string(),
+            }),
+        )
+            .into_response();
+    };
+
+    let Some(pending_balance_hi) = elgamal_key.secret().decrypt_u32(&pending_balance_hi) else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError {
+                msg: "failed to decrypt pending_balance_hi".to_string(),
+            }),
+        )
+            .into_response();
+    };
+
+    let Some(pending_balance) = combine_balances(pending_balance_lo, pending_balance_hi) else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ApiError {
+                msg: "failed to combined pending_balance_lo and pending_balance_hi".to_string(),
+            }),
+        )
+            .into_response();
+    };
+
+    let decrypted_balance: AeCiphertext = confidential_transfer_account.decryptable_available_balance.try_into().unwrap();
+
+    println!(
+        "pending_balance({pending_balance}) non_confidential_balance({}) decrypted_available_balance {}",
+        token_account.base.amount, ae_key.decrypt(&decrypted_balance).unwrap()
+    );
 
     // Confidential Transfer extension information needed to construct a `Withdraw` instruction.
     let withdraw_account_info = WithdrawAccountInfo::new(confidential_transfer_account);
@@ -216,6 +277,7 @@ pub async fn withdraw(
     } = match withdraw_account_info.generate_proof_data(payload.amount, &elgamal_key, &ae_key) {
         Ok(proof) => proof,
         Err(err) => {
+            println!("proof generation failed {err:#?}");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ApiError {

@@ -74,11 +74,16 @@ impl BlinkTestClient {
     }
     async fn test_deposit(&mut self, key: &Keypair, mint: &Keypair, amount: u64) {
         println!("depositing to pending balance");
+        let user_ata = get_user_ata(key, mint);
+        let elgamal_sig = key.sign_message(&KeypairType::ElGamal.message_to_sign(user_ata));
+        let ae_sig = key.sign_message(&KeypairType::Ae.message_to_sign(user_ata));
 
         let deposit = Deposit {
             authority: key.pubkey(),
             token_mint: mint.pubkey(),
             amount,
+            elgamal_signature: elgamal_sig,
+            ae_signature: ae_sig
         };
         let res = self
             .server

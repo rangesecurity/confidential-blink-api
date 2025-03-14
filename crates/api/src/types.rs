@@ -41,6 +41,16 @@ pub struct Deposit {
     /// The confidential token mint
     #[serde(with = "serde_utils::pubkey_string")]
     pub token_mint: Pubkey,
+    /// The signed message of [b"ElGamalSecretKey", user_ata]
+    ///
+    /// This is used to derive the ElGamal keypair
+    #[serde(with = "serde_utils::signature_string")]
+    pub elgamal_signature: Signature,
+    /// The signed message of [b"AEKey", user_ata]
+    ///
+    /// This is used to derive the AE key
+    #[serde(with = "serde_utils::signature_string")]
+    pub ae_signature: Signature,
     /// The amount of tokens to deposit or withdraw in lamports
     pub amount: u64,
 }
