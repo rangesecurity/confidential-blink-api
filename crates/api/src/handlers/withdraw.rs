@@ -205,7 +205,13 @@ pub async fn withdraw(
                 .into_response()
         }
     };
+
+
     let apply_info = ApplyPendingBalanceAccountInfo::new(confidential_transfer_account);
+
+    let available_balance: ElGamalCiphertext = confidential_transfer_account.available_balance.try_into().unwrap();
+
+    let available_balance = available_balance.decrypt(elgamal_key.secret()).decode_u32().unwrap();
 
     let Ok(pending_balance_lo) =
         TryInto::<ElGamalCiphertext>::try_into(confidential_transfer_account.pending_balance_lo)
@@ -263,7 +269,7 @@ pub async fn withdraw(
     let decrypted_balance: AeCiphertext = confidential_transfer_account.decryptable_available_balance.try_into().unwrap();
 
     println!(
-        "pending_balance({pending_balance}) non_confidential_balance({}) decrypted_available_balance {}",
+        "pending_balance({pending_balance}) non_confidential_balance({}) decrypted_available_balance {}, available_balance {available_balance}",
         token_account.base.amount, ae_key.decrypt(&decrypted_balance).unwrap()
     );
 
